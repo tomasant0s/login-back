@@ -1,0 +1,63 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String     @id @default(uuid()) @db.Char(36)
+  email         String     @unique @db.VarChar(50)
+  telefone      String     @db.Char(14)
+  tickets       Int
+  ticketsUsados Int?
+  hashSenha     String     @db.VarChar(150)
+  prompt        String?    @db.VarChar(100)
+  altura        String?    @db.VarChar(4)
+  peso          String?    @db.VarChar(3)
+  imc           Int?
+  lastLogin     DateTime?  @db.Date
+
+  // Relação 1:N com pagamentos
+  pagamentos   Pagamento[]
+
+  // Relação 1:1 com dieta (opcional)
+  dieta         Dieta?
+
+  @@map("users")
+}
+
+model Dieta {
+  id          String   @id @default(uuid()) @db.Char(36)
+  cafeManha   String
+  lancheManha String
+  almoco      String
+  lancheTarde String
+  janta       String
+
+  // Cada dieta pertence a um único usuário
+  userId      String   @unique @db.Char(36)
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@map("dietas")
+}
+
+model Pagamento {
+  id           String    @id @default(uuid()) @db.Char(36)
+  processedAt  DateTime  @db.DateTime   // Usando um tipo adequado para data/hora
+  status       String    @db.VarChar(15)
+
+  // Cada pagamento está relacionado a apenas um usuário
+  userId       String    @db.Char(36)
+  user         User      @relation(fields: [userId], references: [id])
+
+  @@map("pagamentos")
+}
