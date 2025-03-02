@@ -25,7 +25,7 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:3000',
-      'login-mu-bice.vercel.app',
+      'https://login-mu-bice.vercel.app',
     ],
   });
 
