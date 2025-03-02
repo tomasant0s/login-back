@@ -25,7 +25,7 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:3000',
-      'https://login-pllhl2x2u-tomasant0s-projects.vercel.app',
+      'https://main.d1p9zj0tv5uxj2.amplifyapp.com/',
     ],
   });
 
