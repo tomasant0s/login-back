@@ -6,12 +6,13 @@ import * as path from 'path';
 
 async function bootstrap() {
   const sslOptions = {
-    key: fs.readFileSync(path.join(__dirname, '../private.key')),
-    cert: fs.readFileSync(path.join(__dirname, '../certificate.crt')),
-    ca: fs.existsSync(path.join(__dirname, '../ca_bundle.crt'))
-      ? fs.readFileSync(path.join(__dirname, '../ca_bundle.crt'))
+    key: fs.readFileSync(path.join(process.cwd(), 'private.key')),
+    cert: fs.readFileSync(path.join(process.cwd(), 'certificate.crt')),
+    ca: fs.existsSync(path.join(process.cwd(), 'ca_bundle.crt'))
+      ? fs.readFileSync(path.join(process.cwd(), 'ca_bundle.crt'))
       : undefined,
-  };
+};
+
 
   const app = await NestFactory.create(AppModule, { httpsOptions: sslOptions });
 
