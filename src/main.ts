@@ -31,6 +31,7 @@ async function bootstrap() {
 
   const port = process.env.PORT || 8080;
   await app.listen(port);
+  console.log(process.cwd())
 
   // Utilize o Logger do Nest para registrar a mensagem
   const logger = new Logger('Bootstrap');
