@@ -25,7 +25,7 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:3000',
-      'https://main.d2p3f84def89hi.amplifyapp.com',
+      'https://main.d1p9zj0tv5uxj2.amplifyapp.com/',
     ],
   });
 
