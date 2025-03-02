@@ -31,6 +31,12 @@ async function bootstrap() {
     ],
   });
 
-  await app.listen(process.env.PORT ?? 8080);
+  // Definindo a porta a partir da variável de ambiente ou utilizando 8080 como padrão
+  const port = process.env.PORT || 8080;
+  await app.listen(port);
+  
+  // Exibindo no console a porta onde o servidor está rodando
+  console.log(`Servidor rodando na porta ${port}`);
 }
+
 bootstrap();
