@@ -43,27 +43,28 @@ export class UsersService {
 
     async findOne(id: string) {
         const user = await this.prisma.user.findUnique({
-            where: {
-                id: id,
-            },
-            select: {
-                id: true,
-                email: true,
-                telefone: true,
-                tickets: true,
-                ticketsUsados: true,
-                altura: true,
-                peso: true,
-                imc: true,
-                prompt: true,
-                lastLogin: true,
-            }
-        })
-
-        if (user) return user
-
-        throw new HttpException('Usuario nao encontrado', HttpStatus.NOT_FOUND)
-    }
+          where: { id },
+          select: {
+            id: true,
+            email: true,
+            telefone: true,
+            tickets: true,
+            ticketsUsados: true,
+            altura: true,
+            peso: true,
+            imc: true,
+            prompt: true,
+            lastLogin: true,
+            dieta: true,
+            pagamentos: true,
+          },
+        });
+      
+        if (user) return user;
+      
+        throw new HttpException('Usuario nao encontrado', HttpStatus.NOT_FOUND);
+      }
+      
 
     async create(createUserDto: CreateUserDto) {
         try {

@@ -49,6 +49,7 @@ export class AuthService {
 
         return {
             email: user.email,
+            id: user.id,
             token: token 
         }
     }

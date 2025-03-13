@@ -1,29 +1,29 @@
 import { PartialType } from "@nestjs/mapped-types";
 import { CreateUserDto } from "./create-user.dto";
-import { IsDate, IsInt, IsOptional, IsString } from "class-validator";
+import { IsDate, IsDecimal, IsInt, IsOptional, IsString } from "class-validator";
 
 export class UpdateUserDto extends PartialType(CreateUserDto){
     @IsString()
     @IsOptional()
-    altura: string;
+    altura?: string;
 
     @IsString()
     @IsOptional()
-    peso: string;
+    peso?: string;
+
+    @IsDecimal()
+    @IsOptional()
+    imc?: number;
 
     @IsInt()
     @IsOptional()
-    imc: number;
-
-    @IsInt()
-    @IsOptional()
-    ticketsUsados: number;
+    ticketsUsados?: number;
 
     @IsString()
     @IsOptional()
-    prompt: string;
+    prompt?: string;
 
     @IsDate()
     @IsOptional()
-    lastLogin: Date;
+    lastLogin?: Date;
 }
