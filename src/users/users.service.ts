@@ -76,6 +76,7 @@ export class UsersService {
                     telefone: createUserDto.telefone,
                     tickets: 0,
                     hashSenha: passwordHash,
+                    nutricionistaPersonalizado: 0,
                 },
                 select: {
                     id: true,
@@ -115,7 +116,7 @@ export class UsersService {
                     tickets: updateUserDto?.tickets ? updateUserDto?.tickets : user.tickets,
                     ticketsUsados: updateUserDto?.ticketsUsados ? updateUserDto?.ticketsUsados : user.ticketsUsados,
                     prompt: updateUserDto?.prompt ? updateUserDto?.prompt : user.prompt,
-                    altura: updateUserDto?.altura ? updateUserDto?.altura : user.hashSenha,
+                    altura: updateUserDto?.altura ? updateUserDto?.altura : user.altura,
                     peso: updateUserDto?.peso ? updateUserDto?.peso : user.peso,
                     imc: updateUserDto?.imc ? updateUserDto?.imc : user.imc,
                     lastLogin: updateUserDto?.lastLogin ? updateUserDto?.lastLogin : user.lastLogin,

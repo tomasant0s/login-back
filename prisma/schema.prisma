@@ -24,7 +24,7 @@ model User {
   altura                     String?   @db.VarChar(4)
   peso                       String?   @db.VarChar(3)
   imc                        Float?
-  nutricionistaPersonalizado Int
+  nutricionistaPersonalizado Int?
   lastLogin                  DateTime? @db.Date
 
   // Relação 1:N com pagamentos
@@ -37,14 +37,14 @@ model User {
 }
 
 model Dieta {
-  id          String  @id @default(uuid()) @db.Char(36)
-  cafeManha   String  @db.Text
-  lancheManha String  @db.Text
-  almoco      String  @db.Text
-  lancheTarde String  @db.Text
-  janta       String  @db.Text
-  horarios    String
-  treino      String? @db.Text
+  id                         String  @id @default(uuid()) @db.Char(36)
+  cafeManha                  String  @db.Text
+  lancheManha                String  @db.Text
+  almoco                     String  @db.Text
+  lancheTarde                String  @db.Text
+  janta                      String  @db.Text
+  horarios                   String
+  treino                     String? @db.Text
 
   // Cada dieta pertence a um único usuário
   userId String @unique @db.Char(36)

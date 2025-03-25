@@ -1,27 +1,24 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { GenerateDietDto } from './dto/generate-dieta.dto';
+import { createPDF, createPDFs } from '../services/pdfs/pdfs.service';
+import { textCreatina, textWhey, textFrutas, receitasFit } from '../services/pdfs/text';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class DietaService {
   constructor(
     private readonly httpService: HttpService,
     private readonly prisma: PrismaService,
+    private readonly emailService: EmailService,
   ) {}
 
-  // Retorna o fator de exercício com base no nível de atividade
   getExerciseFactor(nivelAtividade: string): number {
-    const factors: Record<string, number> = {
-      leve: 1.2,
-      moderado: 1.55,
-      intenso: 1.9,
-    };
-    return factors[nivelAtividade.toLowerCase()] || 1.2;
+    return Number(nivelAtividade) || 1.2;
   }
 
-  // Calcula a meta calórica com base no objetivo e TMB (Taxa Metabólica Basal)
   calcularCalorias(objetivo: string, genero: string, homensTMB: number, mulheresTMB: number): string {
     switch (objetivo) {
       case "Emagrecimento com facilidade":
@@ -55,11 +52,9 @@ export class DietaService {
     }
   }
 
-  // Monta o prompt a ser enviado ao ChatGPT usando os dados do GenerateDietDto  
   buildPrompt(userData: GenerateDietDto): string {
     const { medidasForm, menuSelections, trainingData, additionalData } = userData;
     const { peso, altura, idade, objetivo, calorias, genero } = medidasForm;
-    // Usa um único array "lanche" para ambos os lanches
     const { cafeDaManha, lanche, almoco, janta } = menuSelections;
     const { nivelAtividade } = trainingData;
     const { horarioRefeicoes, chocolateNaDieta } = additionalData;
@@ -82,8 +77,6 @@ export class DietaService {
       valores.push(i);
     }
     const sorteado = valores[Math.floor(Math.random() * valores.length)];
-    console.log('valores:', valores);
-    console.log('sorteado:', sorteado);
 
     const prompt = `
 Crie um plano de dieta exclusivo para atingir o objetivo de ${objetivo} com um total de ${sorteado} kcal diárias para uma pessoa de ${weight}kg e ${heightNum}m.
@@ -111,7 +104,6 @@ Finalize o plano sem mensagens extras após o jantar.
     return prompt;
   }
 
-  // Chama a API do ChatGPT utilizando o prompt montado
   async getDiet(userData: GenerateDietDto): Promise<any> {
     const prompt = this.buildPrompt(userData);
     const systemMessage = `1 - Todas as refeições devem ser estruturadas para somar corretamente as calorias diárias desejadas.
@@ -141,84 +133,142 @@ Finalize o plano sem mensagens extras após o jantar.
       const response = await lastValueFrom(this.httpService.post(url, data, { headers }));
       return response.data;
     } catch (error) {
-      console.error('Erro ao chamar a API do ChatGPT:', error);
       throw new InternalServerErrorException('Erro ao gerar a dieta');
     }
   }
 
-  // Gera a dieta, faz o parse da resposta e atualiza (ou cria) a dieta associada ao usuário via Prisma  
-  async generateAndSaveDiet(userId: string, userData: GenerateDietDto): Promise<any> {
-    const dietResponse = await this.getDiet(userData);
-    const responseContent = dietResponse.choices?.[0]?.message?.content;
-    if (!responseContent) {
-      throw new InternalServerErrorException('A dieta não foi gerada corretamente');
-    }
-
-    console.dir(responseContent, { maxArrayLength: null, depth: null });
-
-    let parsedDiet;
-    try {
-      // Remove delimitadores de markdown se presentes (ex: ```json ... ```)
-      let cleanedResponse = responseContent;
-      if (cleanedResponse.startsWith('```json')) {
-        cleanedResponse = cleanedResponse.slice(7);
-        const closingIndex = cleanedResponse.lastIndexOf('```');
-        if (closingIndex !== -1) {
-          cleanedResponse = cleanedResponse.slice(0, closingIndex);
-        }
-      }
-      cleanedResponse = cleanedResponse.trim();
-
-      // Extrai o JSON usando expressão regular
-      const jsonMatch = cleanedResponse.match(/{[\s\S]*}/);
-      if (!jsonMatch) {
-        throw new Error('JSON não encontrado na resposta');
-      }
-      const jsonString = jsonMatch[0];
-      parsedDiet = JSON.parse(jsonString);
-    } catch (error) {
-      console.error('Erro ao parsear o JSON da dieta:', error);
-      throw new InternalServerErrorException('Erro ao interpretar a dieta gerada');
-    }
-
-    // Verifica se as chaves necessárias estão presentes
-    const requiredKeys = ['cafeManha', 'almoco', 'lanche', 'janta', 'horarios'];
-    for (const key of requiredKeys) {
-      if (!parsedDiet[key]) {
-        throw new InternalServerErrorException(`A chave ${key} está ausente na resposta`);
-      }
-    }
-
-    // Mapeia o valor retornado de "lanche" para preencher ambos os campos "lancheManha" e "lancheTarde"
-    const snack = parsedDiet.lanche;
-
-    // Cria um objeto apenas com os campos esperados pelo Prisma
-    const dietaData = {
-      cafeManha: parsedDiet.cafeManha,
-      lancheManha: snack,
-      almoco: parsedDiet.almoco,
-      lancheTarde: snack,
-      janta: parsedDiet.janta,
-      horarios: parsedDiet.horarios,
-    };
-
-    try {
-      const updatedUser = await this.prisma.user.update({
+  /**
+   * Método que integra as lógicas de pós-pagamento com base no valor do pagamento.
+   * @param userId - ID do usuário
+   * @param dietData - Dados da dieta fornecidos pelo usuário (GenerateDietDto)
+   * @param paymentAmount - Valor do pagamento (ex.: "1.99", "29.99" ou "default")
+   * @param userEmail - Email do usuário para envio das mensagens
+   */
+  async processDietGeneration(userId: string, dietData: GenerateDietDto, paymentAmount: string, userEmail: string): Promise<any> {
+    if (paymentAmount === "1.99") {
+      // Fluxo para 1.99: Geração de PDFs e envio de e-mail
+      const userData = await this.prisma.user.findUnique({
         where: { id: userId },
-        data: {
-          dieta: {
-            upsert: {
-              update: dietaData,
-              create: dietaData,
-            },
-          },
-        },
         include: { dieta: true },
       });
-      return updatedUser;
-    } catch (error) {
-      console.error('Erro ao salvar a dieta no banco:', error);
-      throw new InternalServerErrorException('Erro ao salvar a dieta');
+      if (!userData) {
+        throw new InternalServerErrorException('Usuário não encontrado');
+      }
+      const peso = Number(userData.peso || 70);
+      const altura = Number(userData.altura || 1.75);
+      const IMC = peso / (altura * altura);
+
+      const pdfDietaBuffer = await createPDF(peso, altura, IMC, userData.dieta || '');
+      const pdfBuffer = await createPDFs(textCreatina, process.env.IMG_CREATINA || '');
+      const pdfBuffer2 = await createPDFs(textWhey, process.env.IMG_WHEY || '');
+      const pdfBuffer3 = await createPDFs(receitasFit, process.env.IMG_PIZZA || '');
+      const pdfBuffer4 = await createPDFs(textFrutas, process.env.IMG_FRUTAS || '');
+
+      await this.emailService.sendEmail(
+        userEmail,
+        'Pagamento Aprovado - Seu Plano Alimentar',
+        `<p>Seu pagamento foi aprovado e sua dieta foi atualizada.</p>`,
+        [
+          { filename: 'Dieta.pdf', content: pdfDietaBuffer, contentType: 'application/pdf' },
+          { filename: 'RecomendaçõesCreatina.pdf', content: pdfBuffer, contentType: 'application/pdf' },
+          { filename: 'RecomendaçõesWhey.pdf', content: pdfBuffer2, contentType: 'application/pdf' },
+          { filename: 'ReceitasFit.pdf', content: pdfBuffer3, contentType: 'application/pdf' },
+          { filename: 'RecomendaçõesFrutas.pdf', content: pdfBuffer4, contentType: 'application/pdf' },
+        ]
+      );
+      return { message: 'Diet PDFs generated and email sent for payment amount 1.99' };
+    } else if (paymentAmount === "29.99") {
+      // Fluxo para 29.99: Atualiza campo nutricionistaPersonalizado e envia e-mail com WhatsApp
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { nutricionistaPersonalizado: 2 },
+      });
+      const numeroWhatsApp = this.generateWhatsAppNumber();
+      const mensagem = `<p>Aqui está seu plano alimentar em PDF. 💚</p>
+        <p>Entre em contato pelo WhatsApp para agendar sua consulta com nossa nutricionista:</p>
+        <p><a href="https://wa.me/${numeroWhatsApp}" target="_blank">Clique aqui para enviar uma mensagem</a></p>
+        <p>Atenciosamente,</p>
+        <p>Equipe de Suporte - Nutri Inteligente</p>`;
+      await this.emailService.sendEmail(
+        userEmail,
+        'Pagamento Acompanhado - Entre em Contato',
+        mensagem
+      );
+      return { message: 'Email with WhatsApp contact sent for payment amount 29.99' };
+    } else {
+      // Fluxo padrão para outros valores: Geração de dieta via OpenAI e salvamento no banco
+      const dietResponse = await this.getDiet(dietData);
+      const responseContent = dietResponse.choices?.[0]?.message?.content;
+      if (!responseContent) {
+        throw new InternalServerErrorException('A dieta não foi gerada corretamente');
+      }
+
+      let parsedDiet;
+      try {
+        let cleanedResponse = responseContent;
+        if (cleanedResponse.startsWith('```json')) {
+          cleanedResponse = cleanedResponse.slice(7);
+          const closingIndex = cleanedResponse.lastIndexOf('```');
+          if (closingIndex !== -1) {
+            cleanedResponse = cleanedResponse.slice(0, closingIndex);
+          }
+        }
+        cleanedResponse = cleanedResponse.trim();
+        const jsonMatch = cleanedResponse.match(/{[\s\S]*}/);
+        if (!jsonMatch) {
+          throw new Error('JSON não encontrado na resposta');
+        }
+        const jsonString = jsonMatch[0];
+        parsedDiet = JSON.parse(jsonString);
+      } catch (error) {
+        throw new InternalServerErrorException('Erro ao interpretar a dieta gerada');
+      }
+
+      const requiredKeys = ['cafeManha', 'almoco', 'lanche', 'janta', 'horarios'];
+      for (const key of requiredKeys) {
+        if (!parsedDiet[key]) {
+          throw new InternalServerErrorException(`A chave ${key} está ausente na resposta`);
+        }
+      }
+
+      const snack = parsedDiet.lanche;
+      const dietaData = {
+        cafeManha: parsedDiet.cafeManha,
+        lancheManha: snack,
+        almoco: parsedDiet.almoco,
+        lancheTarde: snack,
+        janta: parsedDiet.janta,
+        horarios: parsedDiet.horarios,
+      };
+
+      try {
+        const updatedUser = await this.prisma.user.update({
+          where: { id: userId },
+          data: {
+            dieta: {
+              upsert: {
+                update: dietaData,
+                create: dietaData,
+              },
+            },
+          },
+          include: { dieta: true },
+        });
+        return updatedUser;
+      } catch (error) {
+        throw new InternalServerErrorException('Erro ao salvar a dieta');
+      }
     }
+  }
+
+  async generateAndSaveDiet(userId: string, userData: GenerateDietDto): Promise<any> {
+    // Método antigo para compatibilidade, redirecionado para o fluxo default
+    return this.processDietGeneration(userId, userData, "default", "");
+  }
+
+  private generateWhatsAppNumber(): string {
+    const numeros = ['5524993329513', '5524993288136'];
+    const indiceAleatorio = Math.floor(Math.random() * numeros.length);
+    return numeros[indiceAleatorio];
   }
 }
