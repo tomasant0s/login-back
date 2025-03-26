@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
@@ -9,6 +9,8 @@ import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class DietaService {
+  private readonly logger = new Logger(DietaService.name);
+
   constructor(
     private readonly httpService: HttpService,
     private readonly prisma: PrismaService,
@@ -143,59 +145,15 @@ Finalize o plano sem mensagens extras após o jantar.
    * @param dietData - Dados da dieta fornecidos pelo usuário (GenerateDietDto)
    * @param paymentAmount - Valor do pagamento (ex.: "1.99", "29.99" ou "default")
    * @param userEmail - Email do usuário para envio das mensagens
+   * @param addOrderBump - Flag opcional que, se true, executa o fluxo adicional de PDFs e e-mail
    */
-  async processDietGeneration(userId: string, dietData: GenerateDietDto, paymentAmount: string, userEmail: string): Promise<any> {
-    if (paymentAmount === "1.99") {
-      // Fluxo para 1.99: Geração de PDFs e envio de e-mail
-      const userData = await this.prisma.user.findUnique({
-        where: { id: userId },
-        include: { dieta: true },
-      });
-      if (!userData) {
-        throw new InternalServerErrorException('Usuário não encontrado');
-      }
-      const peso = Number(userData.peso || 70);
-      const altura = Number(userData.altura || 1.75);
-      const IMC = peso / (altura * altura);
-
-      const pdfDietaBuffer = await createPDF(peso, altura, IMC, userData.dieta || '');
-      const pdfBuffer = await createPDFs(textCreatina, process.env.IMG_CREATINA || '');
-      const pdfBuffer2 = await createPDFs(textWhey, process.env.IMG_WHEY || '');
-      const pdfBuffer3 = await createPDFs(receitasFit, process.env.IMG_PIZZA || '');
-      const pdfBuffer4 = await createPDFs(textFrutas, process.env.IMG_FRUTAS || '');
-
-      await this.emailService.sendEmail(
-        userEmail,
-        'Pagamento Aprovado - Seu Plano Alimentar',
-        `<p>Seu pagamento foi aprovado e sua dieta foi atualizada.</p>`,
-        [
-          { filename: 'Dieta.pdf', content: pdfDietaBuffer, contentType: 'application/pdf' },
-          { filename: 'RecomendaçõesCreatina.pdf', content: pdfBuffer, contentType: 'application/pdf' },
-          { filename: 'RecomendaçõesWhey.pdf', content: pdfBuffer2, contentType: 'application/pdf' },
-          { filename: 'ReceitasFit.pdf', content: pdfBuffer3, contentType: 'application/pdf' },
-          { filename: 'RecomendaçõesFrutas.pdf', content: pdfBuffer4, contentType: 'application/pdf' },
-        ]
-      );
-      return { message: 'Diet PDFs generated and email sent for payment amount 1.99' };
-    } else if (paymentAmount === "29.99") {
-      // Fluxo para 29.99: Atualiza campo nutricionistaPersonalizado e envia e-mail com WhatsApp
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: { nutricionistaPersonalizado: 2 },
-      });
-      const numeroWhatsApp = this.generateWhatsAppNumber();
-      const mensagem = `<p>Aqui está seu plano alimentar em PDF. 💚</p>
-        <p>Entre em contato pelo WhatsApp para agendar sua consulta com nossa nutricionista:</p>
-        <p><a href="https://wa.me/${numeroWhatsApp}" target="_blank">Clique aqui para enviar uma mensagem</a></p>
-        <p>Atenciosamente,</p>
-        <p>Equipe de Suporte - Nutri Inteligente</p>`;
-      await this.emailService.sendEmail(
-        userEmail,
-        'Pagamento Acompanhado - Entre em Contato',
-        mensagem
-      );
-      return { message: 'Email with WhatsApp contact sent for payment amount 29.99' };
-    } else {
+  async processDietGeneration(
+    userId: string,
+    dietData: GenerateDietDto,
+    paymentAmount: string,
+    userEmail: string,
+    addOrderBump?: boolean
+  ): Promise<any> {
       // Fluxo padrão para outros valores: Geração de dieta via OpenAI e salvamento no banco
       const dietResponse = await this.getDiet(dietData);
       const responseContent = dietResponse.choices?.[0]?.message?.content;
@@ -241,8 +199,9 @@ Finalize o plano sem mensagens extras após o jantar.
         horarios: parsedDiet.horarios,
       };
 
+      let updatedUser;
       try {
-        const updatedUser = await this.prisma.user.update({
+        updatedUser = await this.prisma.user.update({
           where: { id: userId },
           data: {
             dieta: {
@@ -254,16 +213,66 @@ Finalize o plano sem mensagens extras após o jantar.
           },
           include: { dieta: true },
         });
-        return updatedUser;
       } catch (error) {
         throw new InternalServerErrorException('Erro ao salvar a dieta');
       }
-    }
-  }
 
-  async generateAndSaveDiet(userId: string, userData: GenerateDietDto): Promise<any> {
-    // Método antigo para compatibilidade, redirecionado para o fluxo default
-    return this.processDietGeneration(userId, userData, "default", "");
+      // Fluxo adicional para addOrderBump
+      if (addOrderBump === true) {
+        const userData = await this.prisma.user.findUnique({
+          where: { id: userId },
+          include: { dieta: true },
+        });
+        if (!userData) {
+          throw new InternalServerErrorException('Usuário não encontrado');
+        }
+        const peso = Number(userData.peso || 70);
+        const altura = Number(userData.altura || 1.75);
+        const IMC = peso / (altura * altura);
+
+        const pdfDietaBuffer = await createPDF(peso, altura, IMC, userData.dieta || '');
+        const pdfBuffer = await createPDFs(textCreatina, process.env.IMG_CREATINA || '');
+        const pdfBuffer2 = await createPDFs(textWhey, process.env.IMG_WHEY || '');
+        const pdfBuffer3 = await createPDFs(receitasFit, process.env.IMG_PIZZA || '');
+        const pdfBuffer4 = await createPDFs(textFrutas, process.env.IMG_FRUTAS || '');
+
+        await this.emailService.sendEmail(
+          userEmail,
+          'Pagamento Aprovado - Seu Plano Alimentar',
+          `<p>Seu pagamento foi aprovado e sua dieta foi atualizada.</p>`,
+          [
+            { filename: 'Dieta.pdf', content: pdfDietaBuffer, contentType: 'application/pdf' },
+            { filename: 'RecomendaçõesCreatina.pdf', content: pdfBuffer, contentType: 'application/pdf' },
+            { filename: 'RecomendaçõesWhey.pdf', content: pdfBuffer2, contentType: 'application/pdf' },
+            { filename: 'ReceitasFit.pdf', content: pdfBuffer3, contentType: 'application/pdf' },
+            { filename: 'RecomendaçõesFrutas.pdf', content: pdfBuffer4, contentType: 'application/pdf' },
+          ]
+        );
+        this.logger.log("Fluxo addOrderBump executado: PDFs gerados e e-mail enviado");
+        return { dieta: updatedUser.dieta, message: 'Diet PDFs generated and email sent for addOrderBump' };
+      }
+
+      if (paymentAmount === "29.99") {
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: { nutricionistaPersonalizado: 2 },
+        });
+        const numeroWhatsApp = this.generateWhatsAppNumber();
+        const mensagem = `<p>Aqui está seu plano alimentar em PDF. 💚</p>
+          <p>Entre em contato pelo WhatsApp para agendar sua consulta com nossa nutricionista:</p>
+          <p><a href="https://wa.me/${numeroWhatsApp}" target="_blank">Clique aqui para enviar uma mensagem</a></p>
+          <p>Atenciosamente,</p>
+          <p>Equipe de Suporte - Nutri Inteligente</p>`;
+        await this.emailService.sendEmail(
+          userEmail,
+          'Pagamento Acompanhado - Entre em Contato',
+          mensagem
+        );
+        return { message: 'Email with WhatsApp contact sent for payment amount 29.99' };
+      }
+
+      return updatedUser;
+    
   }
 
   private generateWhatsAppNumber(): string {

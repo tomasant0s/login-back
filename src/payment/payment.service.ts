@@ -11,8 +11,6 @@ import { CancelPaymentDto } from './dto/cancel-payment.dto';
 import { efipay } from '../services/EFIPayment';
 import { AsaasService } from '../services/asaas/asaas.service';
 import { EmailService } from '../email/email.service';
-import { createPDF, createPDFs } from '../services/pdfs/pdfs.service';
-import { textCreatina, textWhey, textFrutas, receitasFit } from '../services/pdfs/text';
 import { DietaService } from 'src/dietas/dietas.service';
 
 @Injectable()
